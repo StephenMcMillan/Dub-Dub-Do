@@ -1,4 +1,6 @@
-# Dub Dub Do 
+# Dub Dub Do - A sample TODO List Application in SwiftUI
+> Updated for Xcode 11.5
+
 This is a basic app that lets you create a list of todos, mark them as important or complete and then delete them. Simple.
 
 <p align="center">

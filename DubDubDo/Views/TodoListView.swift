@@ -1,13 +1,22 @@
-import Foundation
 import SwiftUI
+import CoreData
 
 struct TodoListView : View {
     
+    // MARK: - Core Data
+    static let dateSortDescriptor = NSSortDescriptor(key: "dateCreated", ascending: false)
+    
+    @Environment(\.managedObjectContext) var managedObjectContext
+    @FetchRequest(entity: Todo.entity(),
+                  sortDescriptors: [dateSortDescriptor],
+                  predicate: NSPredicate(format: "isComplete == false")) var todos: FetchedResults<Todo>
+    @FetchRequest(entity: Todo.entity(),
+                  sortDescriptors: [dateSortDescriptor],
+                  predicate: NSPredicate(format: "isComplete == true")) var completedTodos: FetchedResults<Todo>
+    
+    // MARK: - View State
     @State var selectedTodo: Todo? = nil
-    
     @State var newTodo: String = ""
-    @EnvironmentObject var todoStore: TodoStore
-    
     @State var showingSheet = false
     
     var body: some View {
@@ -17,69 +26,74 @@ struct TodoListView : View {
                 // The various cell types could be extracted.
                 Section(header: Text("Add")) {
                     HStack {
-                        TextField($newTodo, placeholder: Text("Buy Groceries..."))
-
+                        TextField("Buy Groceries...", text: $newTodo)
+                        
                         if self.newTodo.count > 0 {
                             Button(action: {
-                                self.todoStore.create(description: self.newTodo)
+                                TodoOperations.create(self.newTodo, using: self.managedObjectContext)
                                 self.newTodo = ""
                             }) {
-                                Image(systemName: "plus.circle.fill").foregroundColor(Color.green).imageScale(.large)
-                                }.animation(.basic())
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundColor(Color.green).imageScale(.large)
+                            }
                         }
                     }
                 }
                 
                 Section(header: Text("In Progress")) {
-                    ForEach(todoStore.inProgressTodos.identified(by: \.todoDescription)) { todo in
+                    ForEach(todos, id: \.id) { todo in
                         Button(action: {
                             self.selectedTodo = todo
                             self.showingSheet = true
                         }) {
-                            HStack {
-                                Text(todo.todoDescription).color(.black)
-                                Spacer()
-                                todo.isImportant ? Image(systemName: "exclamationmark.triangle.fill").foregroundColor(Color.red).imageScale(.large) : nil
-                            }
+                            TodoCell(todo: todo)
                         }
-                        }.onDelete(perform: self.todoStore.deleteInProgressTodo(at:))
+                    }
+                    .onDelete(perform: deleteTodos(at:))
                 }
                 
                 Section(header: Text("Completed")) {
-                    ForEach(todoStore.completedTodos.identified(by: \.todoDescription)) { todo in
-                        Text(todo.todoDescription).strikethrough()
-                    }.onDelete(perform: self.todoStore.deleteCompletedTodo(at:))
+                    ForEach(completedTodos, id: \.id) { completedTodo in
+                        TodoCell(todo: completedTodo)
+                    }
+                    .onDelete(perform: deleteCompletedTodos(at:))
                 }
             }
-                .listStyle(.grouped)
-                .navigationBarTitle(Text("Todos"))
-                .navigationBarItems(trailing: EditButton())
+            .listStyle(GroupedListStyle())
+            .navigationBarTitle(Text("Todos"))
+            .navigationBarItems(trailing: EditButton())
         }
-            .presentation(showingSheet ?
-                ActionSheet(
+        .actionSheet(isPresented: $showingSheet, content: {
+            ActionSheet(
                 title: Text("Todo Actions"),
                 message: nil,
                 buttons: [
                     ActionSheet.Button.default(Text((self.selectedTodo?.isImportant ?? false) ? "Unflag" : "Flag")) {
-                        self.todoStore.toggleIsImportant(self.selectedTodo)
-                        self.showingSheet.toggle()
-                        
+                            TodoOperations.toggleIsImportant(self.selectedTodo, using: self.managedObjectContext)
+                            self.showingSheet = false
                     }, ActionSheet.Button.default(Text("Mark as \((self.selectedTodo?.isComplete ?? false) ? "Incomplete" : "Complete")")) {
-                        
-                        self.todoStore.toggleIsComplete(self.selectedTodo)
-                        self.showingSheet.toggle()
-                        
+                            TodoOperations.toggleIsComplete(self.selectedTodo, using: self.managedObjectContext)
+                            self.showingSheet = false
                     }, ActionSheet.Button.cancel({
-                        self.showingSheet.toggle()
+                        self.showingSheet = false
                     })])
-                : nil)
+        })
+    }
+    
+    func deleteTodos(at indexSet: IndexSet) {
+        indexSet.forEach { TodoOperations.delete(todo: todos[$0], using: self.managedObjectContext) }
+    }
+    
+    func deleteCompletedTodos(at indexSet: IndexSet) {
+        indexSet.forEach { TodoOperations.delete(todo: completedTodos[$0], using: self.managedObjectContext) }
     }
 }
 
 #if DEBUG
 struct TodoListView_Previews : PreviewProvider {
     static var previews: some View {
-        TodoListView().environmentObject(TodoStore())
+        TodoListView()
+            .environment(\.managedObjectContext, PersistenceManager().managedObjectContext)
     }
 }
 #endif
